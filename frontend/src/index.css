@@ -1,0 +1,8 @@
+@import "tailwindcss";
+button,
+[role="button"],
+a,
+svg:hover,
+path:hover {
+  cursor: pointer;
+}
