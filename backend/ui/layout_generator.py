@@ -625,6 +625,8 @@ def gerar_layout_final(dxf_file_path, layer_data, talhoes_dict, legenda_layers, 
     print("📊 Layers com comprimento calculado:", layer_data.keys())
     print("✅ Layers marcados pelo usuário:", dados["entidades_exemplo"].keys())
 
+    print(">>> TALHÕES DICT:", talhoes_dict)
+
     adicionar_tabela_comprimentos_custom(ws_pagina2, layer_data, start_row=4, start_col=2)
     adicionar_tabela_talhoes_custom(ws_pagina2, talhoes_dict, start_row=4, start_col=7)
     adicionar_legenda_layers(ws_pagina1, legenda_filtrada, exemplos_legenda, start_row=4, start_col=9)

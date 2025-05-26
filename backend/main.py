@@ -21,6 +21,10 @@ from ui.layout_generator import gerar_layout_final
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -70,13 +74,15 @@ async def deletar_documento(request: Request):
     try:
         payload = await request.json()
         doc_id = payload.get("id")
-        email = request.headers.get("x-user-email")
-
-        if not doc_id or not email:
+        email_usuario_raw = request.headers.get("x-user-email")
+        email_usuario = str(email_usuario_raw) if email_usuario_raw else "anon@anon.com"
+        if not isinstance(email_usuario, str):
+            email_usuario = str(email_usuario)
+        if not doc_id or not email_usuario:
             return {"error": "ID ou usuário ausente"}
 
         # Verifica se pertence ao usuário
-        match = supabase.table("documentos").select("*").eq("id", doc_id).eq("usuario_email", email).execute()
+        match = supabase.table("documentos").select("*").eq("id", doc_id).eq("usuario_email", email_usuario).execute()
         if not match.data:
             return {"error": "Documento não encontrado ou sem permissão"}
 
@@ -92,7 +98,10 @@ async def deletar_documento(request: Request):
 @app.get("/dxf/documentos")
 async def listar_documentos(request: Request):
     try:
-        email_usuario = request.headers.get("x-user-email")
+        email_usuario_raw = request.headers.get("x-user-email")
+        email_usuario = str(email_usuario_raw) if email_usuario_raw else "anon@anon.com"
+        if not isinstance(email_usuario, str):
+             email_usuario = str(email_usuario)
         if not email_usuario:
             return {"error": "Usuário não autenticado."}
 
@@ -157,6 +166,14 @@ async def gerar_layout(
         talhoes = extrair_talhoes_por_proximidade(entidades)
         legenda = extrair_legenda_layers(entidades_visiveis_json)
 
+        # 📂 Reabre o DXF e parseia TODAS as entidades
+        dxf_path = os.path.join("input", nome_arquivo)
+        doc = load_dxf(dxf_path)
+        entidades_dxf = parse_dxf(doc)
+        # 📊 Tabelas e legenda (agora usando exatamente as entidades do DXF atual)
+        talhoes = extrair_talhoes_por_proximidade(entidades_dxf)
+        legenda  = extrair_legenda_layers(entidades_visiveis_json)
+
         exemplos = {}
         for ent in entidades_filtradas:
             layer = ent["layer"]
@@ -201,50 +218,74 @@ async def gerar_layout(
         gerar_layout_final(
             dxf_path,
             layer_data,
-            talhoes,
+            talhoes,  # agora correto para este arquivo
             legenda,
             entidades_visiveis_json,
             dados
         )
 
-        # 📁 Caminhos do PDF e Miniatura
-        pdf_path = os.path.join("output", nome_arquivo.replace(".dxf", f"_V{nova_versao}.pdf"))
+         # 📁 Caminhos do PDF e Miniatura
+        pdf_path       = os.path.join("output", nome_arquivo.replace(".dxf", f"_V{nova_versao}.pdf"))
         miniatura_path = os.path.join("input", "mapa.png")
 
-        # 📛 Nomes de arquivos
-        pdf_filename = os.path.basename(pdf_path)
+        pdf_filename      = os.path.basename(pdf_path)
         miniatura_filename = pdf_filename.replace(".pdf", ".png")
 
-        # 🧠 Pega o e-mail do usuário autenticado (via header enviado pelo frontend)
+        # 🧠 Usuário
         email_usuario = request.headers.get("x-user-email", "anon@anon.com")
 
-        # ☁️ Upload no Supabase Storage
-        with open(pdf_path, "rb") as f:
-            supabase.storage.from_("pdfs").upload(pdf_filename, f, {
-                "content-type": "application/pdf",
-                "upsert": True  # ← permite sobrescrever
-            })
-        with open(miniatura_path, "rb") as f:
-            supabase.storage.from_("miniaturas").upload(miniatura_filename, f, {
-                "content-type": "image/png",
-                "upsert": True  # ← permite sobrescrever
-            })
+        # 🗑️ Remove o PDF e a miniatura antigos (caso existam) para permitir overwrite
+        supabase.storage.from_("pdfs").remove([pdf_filename])
+        supabase.storage.from_("miniaturas").remove([miniatura_filename])
 
-        # 🗃️ Salva registro no Supabase Database
+        # ☁️ Upload no Supabase Storage COM overwrite
+        with open(pdf_path, "rb") as f:
+            supabase.storage.from_("pdfs").upload(
+                pdf_filename,
+                f,
+            )
+        with open(miniatura_path, "rb") as f:
+            supabase.storage.from_("miniaturas").upload(
+                miniatura_filename,
+                f,
+            )
+
+         # 🔗 URLs públicas – get_public_url() retorna a URL diretamente ou um dict com 'publicUrl'
+        res_pdf = supabase.storage.from_("pdfs").get_public_url(pdf_filename)
+        if isinstance(res_pdf, str):
+            pdf_public = res_pdf
+        else:
+            # se for dict, tenta as chaves mais comuns
+            pdf_public = res_pdf.get("publicUrl") or res_pdf.get("publicURL")
+
+        res_mini = supabase.storage.from_("miniaturas").get_public_url(miniatura_filename)
+        if isinstance(res_mini, str):
+            mini_public = res_mini
+        else:
+            mini_public = res_mini.get("publicUrl") or res_mini.get("publicURL")
+
+        supabase.table("documentos") \
+            .delete() \
+            .eq("usuario_email", email_usuario) \
+            .eq("nome_arquivo", pdf_filename) \
+            .execute()
+
+        # 2) Insere o novo registro
         supabase.table("documentos").insert({
             "usuario_email": email_usuario,
-            "nome_arquivo": pdf_filename,
-            "url_pdf": f"https://txdvsqdftdxotvzctwyf.supabase.co/storage/v1/object/public/pdfs/{pdf_filename}",
-            "url_miniatura": f"https://txdvsqdftdxotvzctwyf.supabase.co/storage/v1/object/public/miniaturas/{miniatura_filename}",
-            "propriedade": propriedade,
-            "data_geracao": data_atual
+            "nome_arquivo":   pdf_filename,
+            "url_pdf":        pdf_public,
+            "url_miniatura":  mini_public,
+            "propriedade":    propriedade,
+            "data_geracao":   data_atual
         }).execute()
 
-        pdf_url = f"https://txdvsqdftdxotvzctwyf.supabase.co/storage/v1/object/public/pdfs/{pdf_filename}"
+        # 📨 Retorna a URL pro front
         return {
             "message": "Layout gerado com sucesso.",
-            "pdf_url": pdf_url
+            "pdf_url": pdf_public
         }
+
 
     except Exception as e:
         return {"error": str(e)}

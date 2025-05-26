@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { PageHeader } from "../components/PageHeader";
 const BACKEND_URL = "http://localhost:8000"; // ou seu endereço real de produção
 
 interface Documento {
@@ -11,6 +12,25 @@ interface Documento {
   data_geracao: string;
   usuario_email: string;
 }
+
+async function handleDownload(url: string, filename: string): Promise<void> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("Erro ao baixar PDF:", err);
+      alert("Não foi possível baixar o PDF.");
+    }
+  }
 
 async function excluirDocumento(id: string) {
   const confirmar = confirm("Tem certeza que deseja excluir este documento?");
@@ -79,6 +99,7 @@ export default function Mapas() {
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-green-100 p-6">
+      <PageHeader title="" />
       <h1 className="text-2xl sm:text-3xl font-bold text-green-700 mb-1">
         Visualização de Mapas
       </h1>
@@ -125,20 +146,20 @@ export default function Mapas() {
               <p className="text-sm text-gray-600 mb-4">
                 <strong>Usuário:</strong> {doc.usuario_email}
               </p>
-              <a
-                href={doc.url_pdf}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition font-medium w-full mt-auto text-center"
+             <button
+                onClick={() => handleDownload(doc.url_pdf, doc.nome_arquivo)}
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 
+                          transition font-medium w-full mt-auto text-center"
               >
-                📄 Acessar PDF
-              </a>
+                📄 Baixar PDF
+              </button>
               <button
               onClick={() => excluirDocumento(doc.id)}
               className="mt-2 text-red-500 hover:text-red-700 text-sm"
             >
               🗑 Excluir
             </button>
+              
             </div>
           ))}
         </div>

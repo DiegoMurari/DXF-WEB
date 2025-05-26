@@ -1,6 +1,8 @@
 // src/pages/UploadDXF.tsx
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase"; // ajuste o caminho se necessário
+import React from "react";
+import { PageHeader } from "../components/PageHeader";
 
 const BACKEND_URL = "http://localhost:8000";
 
@@ -48,42 +50,71 @@ export default function UploadDXF() {
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const capturarImagemSVG = async () => {
-    if (!svgRef.current) return null;
+  const capturarImagemSVG = async (): Promise<Blob | null> => {
+  if (!svgRef.current) return null;
+
+  // 1) Clona o SVG inteiro (não afeta o que o usuário vê)
+  const original = svgRef.current;
+  const clone = original.cloneNode(true) as SVGSVGElement;
+
+  // 2) Remove do clone **somente** o overlay pontilhado
+  clone
+    .querySelectorAll<SVGElement>(".capture-overlay")
+    .forEach((el) => el.remove());
+
+  // 3) Serializa o SVG limpo
+  const svgData = new XMLSerializer().serializeToString(clone);
+  const svgBlob = new Blob([svgData], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+  const url = URL.createObjectURL(svgBlob);
+
+  // 4) Converte para PNG via canvas
+  return new Promise<Blob | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = 3;
+      const width = original.clientWidth * scale;
+      const height = original.clientHeight * scale;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        return resolve(null);
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        resolve(blob);
+        URL.revokeObjectURL(url);
+      }, "image/png");
+    };
+    img.src = url;
+  });
+};
   
-    const svgElement = svgRef.current;
-    const svgData = new XMLSerializer().serializeToString(svgElement);
-    const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-  
-    return new Promise<Blob | null>((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        // 🔍 Aumenta resolução — multiplica por um fator (ex: 3x)
-        const scale = 3;
-        const width = svgElement.clientWidth * scale;
-        const height = svgElement.clientHeight * scale;
-  
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-  
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          canvas.toBlob((blob) => {
-            resolve(blob);
-            URL.revokeObjectURL(url);
-          }, "image/png");
-        } else {
-          resolve(null);
-        }
-      };
-      img.src = url;
-    });
-  };
-  
-  
+  async function handleDownload(url: string, filename: string): Promise<void> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const blob = await res.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = blobUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    console.error("Erro ao baixar PDF:", err)
+    alert("Não foi possível baixar o PDF.")
+  }
+}
+
   // 1) Upload + calcular viewBox
   async function handleUpload(file: File) {
     console.log("🔄 Iniciando upload de", file.name);
@@ -241,55 +272,54 @@ const recentrarViewBox = () => {
 
 function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
   e.preventDefault();
-  setGerandoPDF(true); // ← ativa o loading
+  setGerandoPDF(true);
 
   const formData = new FormData(e.currentTarget);
   formData.append("nome_arquivo", propriedade + ".dxf");
   formData.append("selected_layers", JSON.stringify(Array.from(camadasTabela)));
   formData.append("viewBox", JSON.stringify(viewBox));
   formData.append("layers_visiveis", JSON.stringify(Array.from(visiveis)));
-  const svgString = svgRef.current?.outerHTML || "";
-  const svgBlob = new Blob([svgString], { type: "image/svg+xml" });
-  formData.append("svg", svgBlob, "mapa.svg");
-  
+
+  // SVG como blob
+  const svgMarkup = svgRef.current?.outerHTML || "";
+  const svgBlob1 = new Blob([svgMarkup], { type: "image/svg+xml" });
+  formData.append("svg", svgBlob1, "mapa.svg");
+
   if (!svgRef.current) return;
 
-  svgToPng(svgRef.current, 3200, 2400).then((blob) => {
+  // Converte SVG para PNG em alta resolução
+    capturarImagemSVG().then((blob) => {
     if (!blob) {
       setGerandoPDF(false);
       alert("Erro ao gerar imagem.");
       return;
     }
-    
 
     formData.append("mapa", blob, "mapa.png");
 
-    const entidadesVisiveis = entidades.filter(e => visiveis.has(e.layer));
-    const blobEntidades = new Blob([JSON.stringify(entidadesVisiveis)], { type: "application/json" });
-    formData.append("entidades_visiveis", blobEntidades, "entidades_visiveis.txt");
+    const entidadesVisiveis = entidades.filter((ent) => visiveis.has(ent.layer));
+    const blobEnt = new Blob([JSON.stringify(entidadesVisiveis)], { type: "application/json" });
+    formData.append("entidades_visiveis", blobEnt, "entidades_visiveis.txt");
 
-    const svgString = svgRef.current?.outerHTML || "";
-    const svgBlob = new Blob([svgString], { type: "image/svg+xml" });
-    formData.append("svg", svgBlob, "mapa.svg");
-
-  
-    // 🧠 Recupera o e-mail do usuário logado
+    // Recupera e-mail e envia ao backend
     import("../lib/supabase").then(({ supabase }) => {
       supabase.auth.getUser().then((res) => {
-        const email = res.data.user?.email || "anon@anon.com";
+        let email = "anon@anon.com";
+        if (res.data?.user?.email) email = res.data.user.email;
 
         fetch(`${BACKEND_URL}/dxf/gerar-layout`, {
           method: "POST",
-          headers: {
-            "x-user-email": email,
-          },
+          headers: { "x-user-email": email },
           body: formData,
         })
           .then((r) => r.json())
-          .then((d) => {
-            setGerandoPDF(false); // ← desativa o loading
+          .then(async (d) => {
+            setGerandoPDF(false);
             if (d.pdf_url) {
-              window.open(d.pdf_url, "_blank");
+              // extrai nome do arquivo e dispara download
+              const urlObj = new URL(d.pdf_url);
+              const filename = urlObj.pathname.split("/").pop()!;
+              await handleDownload(d.pdf_url, filename);
               setShowForm(false);
             } else {
               alert("Erro: " + (d.error || "desconhecido"));
@@ -303,7 +333,6 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
     });
   });
 }
-
 
   async function svgToPng(svgElement: SVGSVGElement, width: number, height: number): Promise<Blob> {
     const svgData = new XMLSerializer().serializeToString(svgElement);
@@ -339,27 +368,18 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     const ns = "http://www.w3.org/2000/svg";
 
-    // 1) Grid de fundo
-    const grid = document.createElementNS(ns, "g");
-    grid.setAttribute("stroke", "#eee");
-    grid.setAttribute("stroke-width", "1");
-    svg.appendChild(grid);
-    for (let x = -10000; x <= 10000; x += 100) {
-      const l = document.createElementNS(ns, "line");
-      l.setAttribute("x1", `${x}`);
-      l.setAttribute("y1", "-10000");
-      l.setAttribute("x2", `${x}`);
-      l.setAttribute("y2", "10000");
-      grid.appendChild(l);
-    }
-    for (let y = -10000; y <= 10000; y += 100) {
-      const l = document.createElementNS(ns, "line");
-      l.setAttribute("x1", "-10000");
-      l.setAttribute("y1", `${-y}`);
-      l.setAttribute("x2", "10000");
-      l.setAttribute("y2", `${-y}`);
-      grid.appendChild(l);
-    }
+    const vb = svg.viewBox.baseVal;
+    const borda = document.createElementNS(ns, "rect");
+    borda.setAttribute("class", "capture-overlay");
+    borda.setAttribute("x",   `${vb.x}`);
+    borda.setAttribute("y",   `${vb.y}`);
+    borda.setAttribute("width",  `${vb.width}`);
+    borda.setAttribute("height", `${vb.height}`);
+    borda.setAttribute("fill",   "none");
+    borda.setAttribute("stroke", "green");
+    borda.setAttribute("stroke-dasharray", "4,4");
+    borda.setAttribute("stroke-width", "2");
+    svg.appendChild(borda);
 
     // 2) Desenha as formas e coleta textos
     const textos: SVGTextElement[] = [];
@@ -680,10 +700,11 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
   return (
     <div className="p-6 bg-green-50 min-h-screen relative font-sans">
       {/* Header */}
+      <PageHeader title="" />
       <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-green-900 mb-4">
         Upload de DXF
       </h1>
-
+      
       {/* Seletor de arquivo responsivo */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
         <button
@@ -707,102 +728,106 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
           onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
         />
       </div>
-  
       {/* Container do Mapa */}
-      <div className="relative border rounded shadow bg-white overflow-hidden px-2 sm:px-6 md:px-12" ref={wrapperRef}>
-       {/* Botões flutuantes */}
-      <div className="absolute top-3 left-3 flex flex-col gap-2 z-10">
-        <button
-          title="Zoom In"
-          onClick={() => zoomInOut("in")}
-          className="bg-white text-green-600 border border-green-300 hover:bg-green-100 w-9 h-9 md:w-11 md:h-11 rounded-full text-xl md:text-2xl shadow transition"
-        >
-          +
-        </button>
-        <button
-          title="Zoom Out"
-          onClick={() => zoomInOut("out")}
-          className="bg-white text-green-600 border border-green-300 hover:bg-green-100 w-9 h-9 md:w-11 md:h-11 rounded-full text-xl md:text-2xl shadow transition"
-        >
-          −
-        </button>
-        <button
-          title="Recentrar"
-          onClick={recentrarViewBox}
-          className="bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 w-9 h-9 md:w-11 md:h-11 rounded-full text-lg md:text-xl shadow transition"
-        >
-          ⟳
-        </button>
-      </div>
-      
-        {/* Camadas - botão flutuante com bloqueio total de interação */}
-        <div
-          className="absolute top-3 right-3 z-30 group"
-          onMouseEnter={() => setShowLayerPopup(true)}
-          onMouseLeave={() => setShowLayerPopup(false)}
-        >
-          {/* Ponte invisível entre botão e popup (bloqueia panning também) */}
-          <div className="absolute top-10 right-4 w-10 h-6 z-40 bg-transparent pointer-events-auto" />
+      <div
+        className="relative shadow bg-white overflow-hidden px-2 sm:px-6 md:px-12"
+         ref={wrapperRef}
+      >
+         {/* ←–– OVERLAY BRANCO ––→ */}
+          {entidades.length === 0 && (
+            <div
+              className="
+                absolute inset-0
+                bg-white
+                z-20
+              "
+            />
+          )}
+          {/* Botões flutuantes de Zoom e Recentrar */}
+          <div className="absolute top-3 left-3 flex flex-col gap-2 z-10">
+            <button
+              title="Zoom In"
+              onClick={() => zoomInOut("in")}
+              className="bg-white text-green-600 border border-green-300 hover:bg-green-100 w-9 h-9 md:w-11 md:h-11 rounded-full text-xl md:text-2xl shadow transition"
+            >
+              +
+            </button>
+            <button
+              title="Zoom Out"
+              onClick={() => zoomInOut("out")}
+              className="bg-white text-green-600 border border-green-300 hover:bg-green-100 w-9 h-9 md:w-11 md:h-11 rounded-full text-xl md:text-2xl shadow transition"
+            >
+              −
+            </button>
+            <button
+              title="Recentrar"
+              onClick={recentrarViewBox}
+              className="bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 w-9 h-9 md:w-11 md:h-11 rounded-full text-lg md:text-xl shadow transition"
+            >
+              ⟳
+            </button>
+          </div>
 
-          {/* Botão visível */}
-          <button
-            title="Mostrar camadas"
-            className="peer bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-full text-sm shadow hover:bg-gray-100 transition relative z-50"
-          >
-            🗂 Camadas
-          </button>
-
-          {/* Popup de camadas com bloqueio total de interação com fundo */}
+          {/* Popup de seleção de camadas */}
           <div
-            className="absolute top-12 right-0 w-64 sm:w-72 md:w-80 max-h-[300px] overflow-y-auto bg-white rounded-xl shadow-xl transition-opacity duration-300 delay-500 opacity-0 hover:opacity-100 peer-hover:opacity-100 pointer-events-auto z-50 p-3"
-                      onWheel={(e) => {
-              const target = e.currentTarget;
-              const scrollTop = target.scrollTop;
-              const scrollHeight = target.scrollHeight;
-              const offsetHeight = target.offsetHeight;
-
-              const scrollingDown = e.deltaY > 0;
-              const atBottom = scrollTop + offsetHeight >= scrollHeight;
-              const atTop = scrollTop <= 0;
-
-              // Se o scroll puder acontecer, não impedir
-              if ((scrollingDown && !atBottom) || (!scrollingDown && !atTop)) {
-                return;
-              }
-
-              // Se já está no topo ou fim e continuar rolando => cancela zoom
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
+            className="absolute top-3 right-3 z-30 group"
+            onMouseEnter={() => setShowLayerPopup(true)}
+            onMouseLeave={() => setShowLayerPopup(false)}
           >
+            {/* Invisível para bloquear panning */}
+            <div className="absolute top-10 right-4 w-10 h-6 z-40 bg-transparent pointer-events-auto" />
 
-            <h2 className="font-semibold text-sm text-gray-800 mb-2">Camadas visíveis</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 max-h-[40vh] overflow-auto px-1 pr-2 text-sm">
-              {layers.map((L) => (
-                <label key={L} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={visiveis.has(L)}
-                    onChange={() => toggleLayer(L)}
-                    className="accent-green-600"
-                  />
-                  <span className="text-gray-700">{L}</span>
-                </label>
-              ))}
+            <button
+              title="Mostrar camadas"
+              className="peer bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-full text-sm shadow hover:bg-gray-100 transition relative z-50"
+            >
+              🗂 Camadas
+            </button>
+
+            <div
+              className="absolute top-12 right-0 w-64 sm:w-72 md:w-80 max-h-[300px] overflow-y-auto bg-white rounded-xl shadow-xl transition-opacity duration-300 delay-500 opacity-0 hover:opacity-100 peer-hover:opacity-100 pointer-events-auto z-50 p-3"
+              onWheel={(e) => { /* seu handler de wheel aqui */ }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="font-semibold text-sm text-gray-800 mb-2">
+                Camadas visíveis
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 px-1 pr-2 text-sm">
+                {layers.map((L) => (
+                  <label key={L} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={visiveis.has(L)}
+                      onChange={() => toggleLayer(L)}
+                      className="accent-green-600"
+                    />
+                    <span className="text-gray-700">{L}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
+
+          {/* Wrapper exato do SVG: inline-block fecha na área que será capturada */}
+          <div className="relative inline-block w-full h-[60vh] md:h-[70vh] lg:h-[80vh]">
+            
+            {/* Borda pontilhada mostrando a área de captura */}
+            <div
+              className="
+                absolute inset-0
+                pointer-events-none
+                box-border
+              "
+            />
+            {/* SVG do Mapa */}
+            <svg
+            ref={svgRef}
+            viewBox={`${viewBox.x} ${-viewBox.y - viewBox.h} ${viewBox.w} ${viewBox.h}`}
+            className="w-full h-[60vh] md:h-[70vh] lg:h-[80vh] cursor-grab select-none"
+          />
+          </div>
         </div>
-
-        {/* SVG do Mapa */}
-        <svg
-          ref={svgRef}
-          viewBox={`${viewBox.x} ${-viewBox.y - viewBox.h} ${viewBox.w} ${viewBox.h}`}
-          className="w-full h-[60vh] md:h-[70vh] lg:h-[80vh] cursor-grab select-none"
-        />
-
-      </div>
 
       {/* Botão flutuante sobre o mapa para gerar layout */}
       {layers.length > 0 && (
