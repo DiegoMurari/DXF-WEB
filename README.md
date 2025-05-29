@@ -2,14 +2,14 @@
 
 Clique na imagem abaixo para assistir a uma demonstração em vídeo completa do sistema:
 
-[![Assistir Vídeo](docs/Login.png)](https://drive.google.com/file/d/1vabzlwNyjAECyjbcA7UK2HL9aBMqxjxJ/view?usp=drive_link)
-
-Veja abaixo as principais telas e funcionalidades do sistema:
+[![Assistir Vídeo](docs/Login_with_play.png)](https://drive.google.com/file/d/1vabzlwNyjAECyjbcA7UK2HL9aBMqxjxJ/view?usp=drive_link)
 
 ---
 
 ## 🚀 Demonstração
+
 ---
+
 ### 🔐 Login
 
 ![Login](docs/Login.png)
