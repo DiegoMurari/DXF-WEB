@@ -36,7 +36,8 @@ export default function UploadDXF() {
   const [camadasTabela, setCamadasTabela] = useState<Set<string>>(new Set());
   const [gerandoPDF, setGerandoPDF] = useState(false);
   const user = supabase.auth.getUser().then((res) => res.data.user);
-  
+  const [removerAreasTalhoes, setRemoverAreasTalhoes] = useState(true);
+
   const [entidades, setEntidades] = useState<Entidade[]>([]);
   const [layers, setLayers] = useState<string[]>([]);
   const [visiveis, setVisiveis] = useState<Set<string>>(new Set());
@@ -279,6 +280,7 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
   formData.append("selected_layers", JSON.stringify(Array.from(camadasTabela)));
   formData.append("viewBox", JSON.stringify(viewBox));
   formData.append("layers_visiveis", JSON.stringify(Array.from(visiveis)));
+  formData.append("remover_areas_talhoes", removerAreasTalhoes ? "1" : "0");
 
   // SVG como blob
   const svgMarkup = svgRef.current?.outerHTML || "";
@@ -564,7 +566,12 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
         ["TEXT", "MTEXT", "ATTRIB", "ATTDEF"].includes(ent.type) &&
         ent.position &&
         ent.text != null
+        
       ) {
+        // Ignorar textos tipo "X.XX ha" se a opção estiver ativada
+        if (removerAreasTalhoes && ent.text.match(/^\d+(\.\d+)?\s*ha$/i)) {
+          return; // pula o desenho deste texto
+        }
         const t = document.createElementNS(ns, "text");
         t.setAttribute("x", `${ent.position[0]}`);
         t.setAttribute("y", `${-ent.position[1]}`);
@@ -698,6 +705,7 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
   }
 
   return (
+    
     <div className="p-6 bg-green-50 min-h-screen relative font-sans">
       {/* Header */}
       <PageHeader title="" />
@@ -705,6 +713,7 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
         Upload de DXF
       </h1>
       
+
       {/* Seletor de arquivo responsivo */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
         <button
@@ -728,6 +737,17 @@ function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
           onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
         />
       </div>
+      <div className="mb-4">
+  <label className="flex items-center gap-2 text-gray-700">
+    <input
+      type="checkbox"
+      checked={removerAreasTalhoes}
+      onChange={() => setRemoverAreasTalhoes(!removerAreasTalhoes)}
+      className="accent-green-600"
+    />
+    Remover área (ha) sob os números dos talhões e excluir layer TALHÕES da legenda
+  </label>
+</div>
       {/* Container do Mapa */}
       <div
         className="relative shadow bg-white overflow-hidden px-2 sm:px-6 md:px-12"

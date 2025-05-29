@@ -29,6 +29,9 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Polygon, Rectangle
 import time
+from collections import defaultdict
+import math
+from shapely.geometry import Polygon
 
 MAX_DESENHISTA = 60  # Limite máximo para o nome do DESENHISTA
 
@@ -261,24 +264,21 @@ def redimensionar_imagem(imagem_path, largura, altura):
     except Exception as e:
         print(f"❌ Erro ao redimensionar imagem: {e}")
 
-def limpar_colunas_fora_do_layout(ws, ultima_coluna_valida="K"):
-    col_idx = openpyxl.utils.column_index_from_string(ultima_coluna_valida)
-    for i in range(col_idx + 1, 100):  # limpa colunas de L até CV
-        col = get_column_letter(i)
-        if col in ws.column_dimensions:
-            del ws.column_dimensions[col]
-
 def limpar_linhas_fora_do_layout(ws, ultima_linha_valida=33):
     for i in range(ultima_linha_valida + 1, 200):  # limpa linhas 34 em diante
         if i in ws.row_dimensions:
             del ws.row_dimensions[i]
 
+from openpyxl.styles import PatternFill
+
 def adicionar_tabela_comprimentos_custom(ws, layer_data, start_row=1, start_col=1):
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+
     # --------------------------
     #   Configurações de estilo
     # --------------------------
     title_font = Font(bold=True, size=12)
-    header_font = Font(bold=True, size=10)
+    header_font = Font(bold=True, size=10, color="FFFFFF")
     cell_font = Font(size=10)
     thin_border = Border(
         left=Side(style="thin"), right=Side(style="thin"),
@@ -286,7 +286,8 @@ def adicionar_tabela_comprimentos_custom(ws, layer_data, start_row=1, start_col=
     )
     center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False, shrink_to_fit=False)
     left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=False, shrink_to_fit=False)
-    
+    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+
     # --------------------------
     #   Montar título mesclado
     # --------------------------
@@ -295,59 +296,123 @@ def adicionar_tabela_comprimentos_custom(ws, layer_data, start_row=1, start_col=
     title_cell.alignment = center_alignment
     ws.merge_cells(
         start_row=start_row, start_column=start_col,
-        end_row=start_row, end_column=start_col + 3
+        end_row=start_row, end_column=start_col + 6  # 4 + 3 colunas = 7
     )
-    
+
     # --------------------------
-    #   Cabeçalho
+    #   Cabeçalho (mescla 4 colunas para nome)
     # --------------------------
-    headers = ["NOME DO LAYER", "QTD", "TOTAL (m)", "MÉDIA (m)"]
-    header_row = start_row + 1
+    ws.merge_cells(start_row=start_row + 1, start_column=start_col, end_row=start_row + 1, end_column=start_col + 3)
+    cell = ws.cell(row=start_row + 1, column=start_col, value="NOME DO LAYER")
+    cell.font = header_font
+    cell.alignment = center_alignment
+    cell.fill = header_fill
+    cell.border = thin_border
+
+    # Cabeçalhos restantes
+    headers = ["QTD", "TOTAL (m)", "MÉDIA (m)"]
     for i, header_text in enumerate(headers):
-        cell = ws.cell(row=header_row, column=start_col + i, value=header_text)
-        cell.font = header_font
-        cell.alignment = center_alignment
-        cell.border = thin_border
-    
+        c = ws.cell(row=start_row + 1, column=start_col + 4 + i, value=header_text)
+        c.font = header_font
+        c.alignment = center_alignment
+        c.fill = header_fill
+        c.border = thin_border
+
     # --------------------------
-    #   Inserir dados
+    #   Inserir dados (mescla 4 colunas para nomes)
     # --------------------------
-    data_start_row = header_row + 1
-    current_row = data_start_row
-    
+    current_row = start_row + 2
+
     for layer in sorted(layer_data):
         data = layer_data[layer]
         qtd = data.get("qtd", 0)
         total_m = data.get("total", 0.0)
         media_m = total_m / qtd if qtd > 0 else 0.0
-        
-        # Coluna 1: NOME DO LAYER
+
+        # Mescla para NOME DO LAYER
+        ws.merge_cells(start_row=current_row, start_column=start_col, end_row=current_row, end_column=start_col + 3)
         cell = ws.cell(row=current_row, column=start_col, value=layer)
         cell.font = cell_font
-        # Aqui, usamos left_alignment com wrap_text=False para manter o tamanho fixo
         cell.alignment = left_alignment
         cell.border = thin_border
-        
-        # Coluna 2: QTD
-        cell = ws.cell(row=current_row, column=start_col + 1, value=qtd)
-        cell.font = cell_font
-        cell.alignment = center_alignment
-        cell.border = thin_border
-        
-        # Coluna 3: TOTAL (m)
-        cell = ws.cell(row=current_row, column=start_col + 2, value=round(total_m, 2))
-        cell.font = cell_font
-        cell.alignment = center_alignment
-        cell.border = thin_border
-        
-        # Coluna 4: MÉDIA (m)
-        cell = ws.cell(row=current_row, column=start_col + 3, value=round(media_m, 2))
-        cell.font = cell_font
-        cell.alignment = center_alignment
-        cell.border = thin_border
-        
+
+        # QTD
+        c = ws.cell(row=current_row, column=start_col + 4, value=qtd)
+        c.font = cell_font
+        c.alignment = center_alignment
+        c.border = thin_border
+
+        # TOTAL (m)
+        c = ws.cell(row=current_row, column=start_col + 5, value=round(total_m, 2))
+        c.font = cell_font
+        c.alignment = center_alignment
+        c.border = thin_border
+
+        # MÉDIA (m)
+        c = ws.cell(row=current_row, column=start_col + 6, value=round(media_m, 2))
+        c.font = cell_font
+        c.alignment = center_alignment
+        c.border = thin_border
+
         current_row += 1
+
     
+def adicionar_tabela_areas_custom(ws, areas_dict, start_row=1, start_col=1):
+    from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    title_font = Font(bold=True, size=12)
+    header_font = Font(bold=True, size=10, color="FFFFFF")
+    cell_font = Font(size=10)
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin")
+    )
+    center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+
+    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    header_font_color = Font(bold=True, color="FFFFFF")
+
+    # Título (mescla as 4 colunas)
+    ws.cell(row=start_row, column=start_col, value="ÁREAS CALCULADAS").font = title_font
+    ws.merge_cells(
+        start_row=start_row, start_column=start_col,
+        end_row=start_row, end_column=start_col + 3
+    )
+    ws.cell(row=start_row, column=start_col).alignment = center_alignment
+
+    # Cabeçalhos (3 colunas mescladas para NOME, 1 para ÁREA)
+    ws.merge_cells(start_row=start_row + 1, start_column=start_col, end_row=start_row + 1, end_column=start_col + 2)
+    c = ws.cell(row=start_row + 1, column=start_col, value="NOME")
+    c.font = header_font_color
+    c.alignment = center_alignment
+    c.fill = header_fill
+    c.border = thin_border
+
+    c = ws.cell(row=start_row + 1, column=start_col + 3, value="ÁREA (ha)")
+    c.font = header_font_color
+    c.alignment = center_alignment
+    c.fill = header_fill
+    c.border = thin_border
+
+    # Inserir dados
+    current_row = start_row + 2
+    for name, area_m2 in areas_dict.items():
+        area_ha = area_m2 / 10000
+
+        ws.merge_cells(start_row=current_row, start_column=start_col, end_row=current_row, end_column=start_col + 2)
+        c = ws.cell(row=current_row, column=start_col, value=name)
+        c.font = cell_font
+        c.alignment = left_alignment
+        c.border = thin_border
+
+        c = ws.cell(row=current_row, column=start_col + 3, value=round(area_ha, 2))
+        c.font = cell_font
+        c.alignment = center_alignment
+        c.border = thin_border
+
+        current_row += 1
 
 def parse_talhao_layer_name(layer_name):
     """
@@ -372,26 +437,17 @@ def parse_talhao_layer_name(layer_name):
     return numero_str, area_ha
 
 def adicionar_tabela_talhoes_custom(ws, talhoes_dict, start_row=1, start_col=1):
-    """
-    Cria uma tabela "TALHÕES" sem a coluna de %,
-    exibindo:
-      - Número
-      - Área (ha)
-      - Área (alq)*
-
-    E uma linha TOTAL em vermelho.
-    """
-    from openpyxl.styles import Alignment, Font, Border, Side
     from openpyxl.utils import get_column_letter
 
     title_font = Font(bold=True, size=12)
-    header_font = Font(bold=True, size=10)
+    header_font = Font(bold=True, size=10, color="FFFFFF")
     cell_font = Font(size=10)
     thin_border = Border(
         left=Side(style="thin"), right=Side(style="thin"),
         top=Side(style="thin"), bottom=Side(style="thin")
     )
     center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    header_fill = PatternFill(start_color="305496", end_color="305496", fill_type="solid")
 
     # Título
     ws.cell(row=start_row, column=start_col, value="TALHÕES").font = title_font
@@ -402,11 +458,15 @@ def adicionar_tabela_talhoes_custom(ws, talhoes_dict, start_row=1, start_col=1):
     ws.cell(row=start_row, column=start_col).alignment = center_alignment
 
     # Cabeçalho
+    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    header_font_color = Font(bold=True, color="FFFFFF")
+
     headers = ["Número", "Área (ha)", "Área (alq)*"]
     for i, header_text in enumerate(headers):
         c = ws.cell(row=start_row+1, column=start_col + i, value=header_text)
-        c.font = header_font
+        c.font = header_font_color
         c.alignment = center_alignment
+        c.fill = header_fill
         c.border = thin_border
 
     # Inserir dados
@@ -416,22 +476,19 @@ def adicionar_tabela_talhoes_custom(ws, talhoes_dict, start_row=1, start_col=1):
 
     current_row = row_data_start
     for numero, area_ha in talhoes_dict.items():
-        area_alq = area_ha / 2.42  # Ajuste se quiser outro fator
+        area_alq = area_ha / 2.42
 
-        # Número
         c = ws.cell(row=current_row, column=start_col, value=numero)
         c.font = cell_font
         c.alignment = center_alignment
         c.border = thin_border
 
-        # Área (ha)
-        c = ws.cell(row=current_row, column=start_col+1, value=round(area_ha, 2))
+        c = ws.cell(row=current_row, column=start_col + 1, value=round(area_ha, 2))
         c.font = cell_font
         c.alignment = center_alignment
         c.border = thin_border
 
-        # Área (alq)*
-        c = ws.cell(row=current_row, column=start_col+2, value=round(area_alq, 2))
+        c = ws.cell(row=current_row, column=start_col + 2, value=round(area_alq, 2))
         c.font = cell_font
         c.alignment = center_alignment
         c.border = thin_border
@@ -440,29 +497,23 @@ def adicionar_tabela_talhoes_custom(ws, talhoes_dict, start_row=1, start_col=1):
         total_alq += area_alq
         current_row += 1
 
-    # Linha TOTAL
     c = ws.cell(row=current_row, column=start_col, value="TOTAL")
-    c.font = Font(bold=True, color="FF0000")  # vermelho
+    c.font = Font(bold=True, color="FF0000")
     c.alignment = center_alignment
     c.border = thin_border
 
-    c = ws.cell(row=current_row, column=start_col+1, value=round(total_ha, 2))
+    c = ws.cell(row=current_row, column=start_col + 1, value=round(total_ha, 2))
     c.font = Font(bold=True)
     c.alignment = center_alignment
     c.border = thin_border
 
-    c = ws.cell(row=current_row, column=start_col+2, value=round(total_alq, 2))
+    c = ws.cell(row=current_row, column=start_col + 2, value=round(total_alq, 2))
     c.font = Font(bold=True)
     c.alignment = center_alignment
     c.border = thin_border
 
-    # Observação "*Alqueires Paulistas"
-    ws.cell(row=current_row+1, column=start_col+2, value="*Alqueires Paulistas").alignment = Alignment(horizontal="right")
+    ws.cell(row=current_row + 1, column=start_col + 2, value="*Alqueires Paulistas").alignment = Alignment(horizontal="right")
 
-    # Ajuste de largura (remova se quiser manter o template)
-    ws.column_dimensions[get_column_letter(start_col)].width = 10
-    ws.column_dimensions[get_column_letter(start_col+1)].width = 12
-    ws.column_dimensions[get_column_letter(start_col+2)].width = 12
 
 def gerar_layout_final(dxf_file_path, layer_data, talhoes_dict, legenda_layers, entidades_visiveis, dados):
     # Aqui você usa 'dados' diretamente, sem abrir outro diálogo.
@@ -524,7 +575,6 @@ def gerar_layout_final(dxf_file_path, layer_data, talhoes_dict, legenda_layers, 
 
     try:
         from ui.layout_generator import (
-            limpar_colunas_fora_do_layout, limpar_linhas_fora_do_layout,
             preparar_planilha_para_pdf, adicionar_legenda_layers,
             adicionar_tabela_comprimentos_custom, adicionar_tabela_talhoes_custom, set_cell_value
         )
@@ -532,43 +582,46 @@ def gerar_layout_final(dxf_file_path, layer_data, talhoes_dict, legenda_layers, 
         print("Erro ao importar funções auxiliares:", e)
         return
 
-    limpar_colunas_fora_do_layout(ws_pagina1, "K")
-    limpar_linhas_fora_do_layout(ws_pagina1, 40)
-    limpar_colunas_fora_do_layout(ws_pagina2, "J")
-    limpar_linhas_fora_do_layout(ws_pagina2, 40)
-
     preparar_planilha_para_pdf(
         wb,
-        escalas_por_aba={"Pagina1": 75, "Pagina2": 85},
-        print_areas={"Pagina1": "A1:K40", "Pagina2": "A1:J40"}
+        escalas_por_aba={"Pagina1": 75, "Pagina2": 75},
+        print_areas={"Pagina1": "A3:K36", "Pagina2": "A3:P36"}
     )
 
     ws_pagina1.merge_cells("H36:I36")
-    ws_pagina2.merge_cells("F35:J35")
+    ws_pagina2.merge_cells("H36:I36")
 
     # Logo da Cevasa
     img_cevasa_path = resource_path("resources/images/logo.png")
     redimensionar_imagem(img_cevasa_path, 95, 40)
     img_cevasa = XLImage(img_cevasa_path)
-    img_cevasa.anchor = "A34"
+    img_cevasa.anchor = "A35"
     ws_pagina2.add_image(img_cevasa)
     ws_pagina1.column_dimensions["K"].width = 36
 
     # Rosa dos ventos
     img_rosa_path_1 = resource_path("resources/images/rosa_dos_ventos.png")
-    redimensionar_imagem(img_rosa_path_1, 110, 110)
+    redimensionar_imagem(img_rosa_path_1, 100, 85)
     img_rosa_path_2 = resource_path("resources/images/rosa_dos_ventos.png")
-    redimensionar_imagem(img_rosa_path_2, 100, 90)
+    redimensionar_imagem(img_rosa_path_2, 100, 85)
 
     ws_pagina1.merge_cells("K31:K34")
-    ws_pagina2.merge_cells("I30:J33")
+    ws_pagina2.merge_cells('M31:P34')
+    ws_pagina2.merge_cells('K32:L32')
+    ws_pagina2.merge_cells('K34:L34')
+
+    cell_1 = ws_pagina2['K32']
+    cell_1.alignment = Alignment(horizontal='center', vertical='center')
+
+    cell_2 = ws_pagina2['K34']
+    cell_2.alignment = Alignment(horizontal='center', vertical='center')
 
     img_final_rosa_1 = os.path.join("output", "rosa_dos_ventos_pagina1.png")
     img_final_rosa_2 = os.path.join("output", "rosa_dos_ventos_pagina2.png")
     gerar_imagem_centrada(img_rosa_path_1, 252, 110, img_final_rosa_1)
     inserir_imagem(ws_pagina1, img_final_rosa_1, "K31")
-    gerar_imagem_centrada(img_rosa_path_2, 170, 90, img_final_rosa_2)
-    inserir_imagem(ws_pagina2, img_final_rosa_2, "I30")
+    gerar_imagem_centrada(img_rosa_path_2, 252, 110, img_final_rosa_2)
+    inserir_imagem(ws_pagina2, img_final_rosa_2, "M31")
     ws_pagina1.column_dimensions["K"].width = 36
 
     img_cevasa = XLImage(resource_path("resources/images/logo.png"))
@@ -586,16 +639,17 @@ def gerar_layout_final(dxf_file_path, layer_data, talhoes_dict, legenda_layers, 
     set_cell_value(ws_pagina1, "E36", dados['mun_est'])       
     set_cell_value(ws_pagina1, "H36", dados['desenhista'])    
 
-    set_cell_value(ws_pagina2, "G30", dados['parc'])        
-    set_cell_value(ws_pagina2, "H31", dados['data_atual'])     
-    set_cell_value(ws_pagina2, "G32", dados['distancia'])      
-    set_cell_value(ws_pagina2, "G33", dados['area_cana'])     
-    set_cell_value(ws_pagina2, "H33", dados['nova_versao']) 
-    set_cell_value(ws_pagina2, "G31", dados['escala'])        
-    set_cell_value(ws_pagina2, "B35", dados['propriedade'])    
-    set_cell_value(ws_pagina2, "C35", dados['mun_est'])        
-    set_cell_value(ws_pagina2, "F35", dados['desenhista'])   
+    set_cell_value(ws_pagina2, "I31", dados['parc'])         
+    set_cell_value(ws_pagina2, "K32", dados['data_atual'])   
+    set_cell_value(ws_pagina2, "I33", dados['distancia'])      
+    set_cell_value(ws_pagina2, "I34", dados['area_cana'])      
+    set_cell_value(ws_pagina2, "K34", dados['nova_versao'])    
+    set_cell_value(ws_pagina2, "I32", dados['escala'])         
+    set_cell_value(ws_pagina2, "B36", dados['propriedade'])    
+    set_cell_value(ws_pagina2, "E36", dados['mun_est'])       
+    set_cell_value(ws_pagina2, "H36", dados['desenhista']) 
 
+    
     # 📦 Agrupa entidades visíveis por layer
     # 📦 Mapeia entidades visíveis por layer
     entidades_por_layer = {}
@@ -627,11 +681,61 @@ def gerar_layout_final(dxf_file_path, layer_data, talhoes_dict, legenda_layers, 
 
     print(">>> TALHÕES DICT:", talhoes_dict)
 
-    adicionar_tabela_comprimentos_custom(ws_pagina2, layer_data, start_row=4, start_col=2)
-    adicionar_tabela_talhoes_custom(ws_pagina2, talhoes_dict, start_row=4, start_col=7)
+    adicionar_tabela_talhoes_custom(ws_pagina2, talhoes_dict, start_row=4, start_col=11)
     adicionar_legenda_layers(ws_pagina1, legenda_filtrada, exemplos_legenda, start_row=4, start_col=9)
 
+    def area_da_entidade(ent):
+        if ent["type"] in ["POLYLINE", "LWPOLYLINE", "SOLID"]:
+            pts = ent.get("points", [])
+            if len(pts) >= 3:
+                return abs(Polygon(pts).area)
+        if ent["type"] == "CIRCLE":
+            return math.pi * (ent["radius"] ** 2)
+        return 0.0
+
+    def area_por_layer(dxf_entities):
+        areas = defaultdict(float)
+        for ent in dxf_entities:
+            a = area_da_entidade(ent)
+            if a > 0:
+                areas[ent["layer"]] += a
+        return areas
+
+    def diagnostico_areas_por_layer(dxf_entities):
+        areas = defaultdict(float)
+        for ent in dxf_entities:
+            a = area_da_entidade(ent)
+            if a > 0:
+                areas[ent["layer"]] += a
+        
+        print("\n=== DIAGNÓSTICO DAS ÁREAS POR LAYER ===")
+        for layer, total_area in sorted(areas.items()):
+            print(f"Layer '{layer}': {total_area:.2f} m² → {total_area / 10000:.2f} ha")
+        print("========================================\n")
+        
+        area_preto = areas.get("0", 0.0)
+        area_talhoes = areas.get("TALHÕES", 0.0)
+        area_carreador = area_preto - area_talhoes
+        
+        print(f"Área TOTAL layer '0': {area_preto:.2f} m² → {area_preto/10000:.2f} ha")
+        print(f"Área TOTAL layer 'TALHÕES': {area_talhoes:.2f} m² → {area_talhoes/10000:.2f} ha")
+        print(f"Área do CARREADOR calculada: {area_carreador:.2f} m² → {area_carreador/10000:.2f} ha")
+        
+        return areas, area_carreador
+
+    areas, area_carreador = diagnostico_areas_por_layer(entidades_visiveis)
+
+    areas_para_exibir = {
+        "Layer '0' (preto)": areas.get("0", 0.0),
+        "Layer 'TALHÕES'": areas.get("TALHÕES", 0.0),
+        "Área Carreador (calculada)": area_carreador
+    }
+
+    adicionar_tabela_areas_custom(ws_pagina2, areas_para_exibir, start_row=21, start_col=2)
+    adicionar_tabela_comprimentos_custom(ws_pagina2, layer_data, start_row=4, start_col=2)
+
     image_path = os.path.join("input", "mapa.png")
+
     if os.path.exists(image_path):
         try:
             centralizar_imagem_na_planilha(ws_pagina1, image_path, cell_coord="A05")

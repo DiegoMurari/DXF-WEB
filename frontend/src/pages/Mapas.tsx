@@ -91,12 +91,12 @@ export default function Mapas() {
   }, []);
 
   const documentosFiltrados = documentos.filter((doc) => {
-    return (
-      doc.propriedade.toLowerCase().includes(filtroNome.toLowerCase()) &&
-      doc.data_geracao.includes(filtroData)
-    );
-  });
-  
+  const dataDoc = doc.data_geracao.slice(0, 10); // 'YYYY-MM-DD'
+  const nomeOk = doc.propriedade.toLowerCase().includes(filtroNome.toLowerCase());
+  const dataOk = filtroData ? dataDoc === filtroData : true;
+  return nomeOk && dataOk;
+});
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-green-100 p-6">
       <PageHeader title="" />

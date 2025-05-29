@@ -3,6 +3,7 @@ import ezdxf
 from collections import defaultdict
 from .dxf_utils import get_entity_color  # função que retorna (r, g, b) normalizado
 import re
+from shapely.geometry import Polygon
 
 def get_entity_color_original(entity, doc):
     """
@@ -14,6 +15,23 @@ def get_entity_color_original(entity, doc):
         color_aci = layer.color
     r, g, b = ezdxf.colors.aci2rgb(color_aci)
     return (r / 255.0, g / 255.0, b / 255.0)
+
+def area_por_layer(dxf_entities):
+    areas = defaultdict(float)
+    for ent in dxf_entities:
+        a = area_da_entidade(ent)
+        if a > 0:
+            areas[ent["layer"]] += a
+    return areas
+
+def area_da_entidade(ent):
+    if ent["type"] in ["POLYLINE", "LWPOLYLINE", "SOLID"]:
+        pts = ent.get("points", [])
+        if len(pts) >= 3:
+            return abs(Polygon(pts).area)
+    if ent["type"] == "CIRCLE":
+        return math.pi * (ent["radius"] ** 2)
+    return 0.0
 
 def parse_entity(entity, doc):
     """
@@ -34,6 +52,8 @@ def parse_entity(entity, doc):
             for sub in entity.virtual_entities():
                 sub.dxf.layer = layer
                 result.extend(parse_entity(sub, doc))
+                if not sub.dxf.layer:
+                    sub.dxf.layer = layer
             for attrib in entity.attribs:
                 result.append({
                     'type': 'TEXT',
