@@ -6,6 +6,7 @@ import ProtectedRoute from "./components/protectedroute";
 import ServicosList from "./pages/ServicosList";
 import Mapas from "./pages/Mapas";
 import UploadDXF from "./pages/UploadDXF";
+import AdminUsers from "./pages/Adminusers"
 
 export default function App() {
   return (
@@ -51,6 +52,11 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route 
+          path="/admin/users" 
+          element={
+          <AdminUsers />}
+           />
         {/* Qualquer rota inválida */}
         <Route path="*" element={<div className="p-4">Página não encontrada</div>} />
       </Routes>

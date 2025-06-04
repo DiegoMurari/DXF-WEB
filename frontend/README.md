@@ -1,54 +1,57 @@
-# React + TypeScript + Vite
+## 🎥 Demonstração em Vídeo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Clique na imagem abaixo para assistir a uma demonstração em vídeo completa do sistema:
 
-Currently, two official plugins are available:
+[![Assistir Vídeo](docs/Login_with_play.png)](https://drive.google.com/file/d/1vabzlwNyjAECyjbcA7UK2HL9aBMqxjxJ/view?usp=drive_link)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## Expanding the ESLint configuration
+## 🚀 Demonstração
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+### 🔐 Login
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+![Login](docs/Login.png)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Tela inicial para autenticação do usuário no sistema.
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
-```
+---
+
+### 📤 Upload
+
+![Upload](docs/Upload.png)
+
+Área para envio de arquivos DXF, permitindo que o usuário selecione e visualize os arquivos que serão processados.
+
+---
+
+### 📊 Dashboard
+
+![Dashboard](docs/Dashboard.png)
+
+Painel principal com visão geral das opções e navegação entre as funcionalidades disponíveis.
+
+---
+
+### 🗺️ Mapa Carregado
+
+![Mapa Carregado](docs/MapaCarregado.png)
+
+Visualização interativa do mapa DXF carregado, com zoom e seleção de camadas.
+
+---
+
+### 📝 Tela de Informações
+
+![Tela de Informações](docs/Tela-de-informacoes.png)
+
+Tela detalhada que exibe informações das camadas selecionadas e permite configurar dados antes da geração do relatório.
+
+---
+
+### 📂 Listagem de Mapas
+
+![Mapas](docs/Mapas.png)
+
+Listagem dos arquivos já gerados pelo usuário, com opção de download do PDF final.

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { PageHeader } from "../components/PageHeader";
-const BACKEND_URL = "http://localhost:8000"; // ou seu endereço real de produção
+
+const BACKEND_URL = "http://localhost:8000";
 
 interface Documento {
   id: string;
@@ -11,51 +12,25 @@ interface Documento {
   url_miniatura: string;
   data_geracao: string;
   usuario_email: string;
+  owner_id: string;
 }
 
 async function handleDownload(url: string, filename: string): Promise<void> {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      console.error("Erro ao baixar PDF:", err);
-      alert("Não foi possível baixar o PDF.");
-    }
-  }
-
-async function excluirDocumento(id: string) {
-  const confirmar = confirm("Tem certeza que deseja excluir este documento?");
-  if (!confirmar) return;
-
-  const { data: user } = await supabase.auth.getUser();
-  const email = user.user?.email;
-
-  if (!email) return alert("Usuário não autenticado");
-
-  const res = await fetch(`${BACKEND_URL}/dxf/deletar-documento`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-user-email": email,
-    },
-    body: JSON.stringify({ id }),
-  });
-
-  const result = await res.json();
-  if (result.success) {
-    alert("Documento excluído com sucesso!");
-    window.location.reload();
-  } else {
-    alert("Erro ao excluir: " + result.error);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error("Erro ao baixar PDF:", err);
+    alert("Não foi possível baixar o PDF.");
   }
 }
 
@@ -63,39 +38,112 @@ export default function Mapas() {
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [filtroNome, setFiltroNome] = useState("");
   const [filtroData, setFiltroData] = useState("");
+  const [role, setRole] = useState<"admin" | "usuario" | null>(null);
+  const [emailAtual, setEmailAtual] = useState("");
 
-  useEffect(() => {
-    async function fetchDocumentos() {
-      const { data: userData } = await supabase.auth.getUser();
-      const email = userData?.user?.email;
+  async function excluirDocumento(id: string) {
+    const confirmar = confirm("Tem certeza que deseja excluir este documento?");
+    if (!confirmar) return;
 
-      if (!email) {
-        console.warn("Usuário não autenticado.");
-        return;
-      }
+    const { data: user } = await supabase.auth.getUser();
+    const email = user.user?.email;
 
-      try {
-        const response = await fetch("http://localhost:8000/dxf/documentos", {
-          headers: {
-            "x-user-email": email,
-          },
-        });
-        const data = await response.json();
-        setDocumentos(data || []);
-      } catch (err) {
-        console.error("Erro ao buscar documentos:", err);
+    if (!email) return alert("Usuário não autenticado");
+
+    const res = await fetch(`${BACKEND_URL}/dxf/deletar-documento`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-email": email,
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    const result = await res.json();
+    if (result.success) {
+      alert("Documento excluído com sucesso!");
+      // Atualiza lista sem recarregar a página
+      setDocumentos((prev) => prev.filter((doc) => doc.id !== id));
+    } else {
+      alert("Erro ao excluir: " + result.error);
+    }
+  }
+
+useEffect(() => {
+  async function fetchDocumentos() {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    const email = userData?.user?.email?.trim().toLowerCase();
+    setEmailAtual(email ?? "");
+
+    if (!userId || !email) {
+      console.warn("Usuário não autenticado.");
+      return;
+    }
+
+    const { data: perfil } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .single();
+
+    const userRole = perfil?.role;
+    setRole(userRole);
+
+    let docs = [];
+
+    if (userRole === "admin") {
+      // 🔥 Admin vê tudo
+      const { data } = await supabase
+        .from("documentos")
+        .select("*")
+        .order("data_geracao", { ascending: false });
+
+      docs = data || [];
+    } else {
+      // 🔐 Usuário comum vê próprios + compartilhados
+      const { data: acessos } = await supabase
+        .from("user_document_access")
+        .select("documento_id")
+        .eq("user_id", userId);
+
+      const idsLiberados = acessos?.map((a) => a.documento_id) || [];
+
+      if (idsLiberados.length === 0) {
+        const { data } = await supabase
+          .from("documentos")
+          .select("*")
+          .eq("usuario_email", email)
+          .order("data_geracao", { ascending: false });
+
+        docs = data || [];
+      } else {
+        const { data } = await supabase
+          .from("documentos")
+          .select("*")
+          .or(`usuario_email.eq.${email},id.in.(${idsLiberados.join(",")})`)
+          .order("data_geracao", { ascending: false });
+
+        docs = data || [];
       }
     }
 
-    fetchDocumentos();
-  }, []);
+    console.log("Email:", email);
+    console.log("Role:", userRole);
+    console.log("Documentos encontrados:", docs);
+
+    setDocumentos(docs);
+  }
+
+  fetchDocumentos();
+}, []);
 
   const documentosFiltrados = documentos.filter((doc) => {
-  const dataDoc = doc.data_geracao.slice(0, 10); // 'YYYY-MM-DD'
-  const nomeOk = doc.propriedade.toLowerCase().includes(filtroNome.toLowerCase());
-  const dataOk = filtroData ? dataDoc === filtroData : true;
-  return nomeOk && dataOk;
-});
+    const dataDoc = doc.data_geracao.slice(0, 10);
+    const nomeOk = doc.propriedade.toLowerCase().includes(filtroNome.toLowerCase());
+    const dataOk = filtroData ? dataDoc === filtroData : true;
+    return nomeOk && dataOk;
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-green-100 p-6">
@@ -132,11 +180,18 @@ export default function Mapas() {
               key={doc.id}
               className="bg-white border border-green-200 rounded-xl shadow hover:shadow-md transition p-4 flex flex-col"
             >
-              <img
-                src={doc.url_miniatura}
-                alt={`Visualização de ${doc.propriedade}`}
-                className="w-full h-40 object-cover rounded mb-3"
-              />
+              {doc.url_miniatura ? (
+                <img
+                  src={doc.url_miniatura}
+                  alt={`Miniatura de ${doc.propriedade}`}
+                  className="w-full h-40 object-cover rounded mb-3"
+                />
+              ) : (
+                <div className="w-full h-40 bg-gray-100 flex items-center justify-center text-gray-400 rounded mb-3">
+                  Sem miniatura
+                </div>
+              )}
+
               <h3 className="text-lg font-semibold text-green-700 mb-1">
                 {doc.propriedade}
               </h3>
@@ -146,20 +201,22 @@ export default function Mapas() {
               <p className="text-sm text-gray-600 mb-4">
                 <strong>Usuário:</strong> {doc.usuario_email}
               </p>
-             <button
+
+              <button
                 onClick={() => handleDownload(doc.url_pdf, doc.nome_arquivo)}
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 
-                          transition font-medium w-full mt-auto text-center"
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition font-medium w-full mt-auto text-center"
               >
                 📄 Baixar PDF
               </button>
-              <button
-              onClick={() => excluirDocumento(doc.id)}
-              className="mt-2 text-red-500 hover:text-red-700 text-sm"
-            >
-              🗑 Excluir
-            </button>
-              
+
+              {(role === "admin" || doc.usuario_email === emailAtual) && (
+                <button
+                  onClick={() => excluirDocumento(doc.id)}
+                  className="mt-2 text-red-500 hover:text-red-700 text-sm"
+                >
+                  🗑 Excluir
+                </button>
+              )}
             </div>
           ))}
         </div>
